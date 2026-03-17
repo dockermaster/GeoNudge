@@ -15,6 +15,7 @@ private final class CLLocationDelegate: NSObject, CLLocationManagerDelegate, @un
             owner.authorizationStatus = status
             if status == .authorizedAlways || status == .authorizedWhenInUse {
                 owner.syncRegions()
+                manager.startUpdatingLocation()
             }
         }
     }
@@ -25,6 +26,13 @@ private final class CLLocationDelegate: NSObject, CLLocationManagerDelegate, @un
                   let alert = owner.alerts.first(where: { $0.regionIdentifier == region.identifier }),
                   alert.isActive else { return }
             owner.notifier.schedule(for: alert)
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        Task { @MainActor [weak self] in
+            self?.owner?.currentLocation = location
         }
     }
 
@@ -45,6 +53,7 @@ final class LocationManager {
     var alerts: [GeoAlert] = GeoAlert.loadAll()
     var collections: [GeoCollection] = GeoCollection.loadAll()
     var authorizationStatus: CLAuthorizationStatus = .notDetermined
+    var currentLocation: CLLocation? = nil
 
     private let coreLocationManager = CLLocationManager()
     private let locationDelegate = CLLocationDelegate()
@@ -61,7 +70,12 @@ final class LocationManager {
         self.notifier = notifier
         locationDelegate.owner = self
         coreLocationManager.delegate = locationDelegate
+        coreLocationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
         authorizationStatus = coreLocationManager.authorizationStatus
+        let status = coreLocationManager.authorizationStatus
+        if status == .authorizedAlways || status == .authorizedWhenInUse {
+            coreLocationManager.startUpdatingLocation()
+        }
         ensureDefaultCollection()
         syncRegions()
     }
@@ -81,6 +95,14 @@ final class LocationManager {
         GeoCollection.saveAll(collections)
     }
 
+    func importCollection(_ collection: GeoCollection, alerts newAlerts: [GeoAlert]) {
+        collections.append(collection)
+        GeoCollection.saveAll(collections)
+        alerts.append(contentsOf: newAlerts)
+        GeoAlert.saveAll(alerts)
+        syncRegions()
+    }
+
     func deleteCollection(_ collection: GeoCollection) {
         guard !collection.isDefault else { return }
         let defaultId = defaultCollection.id
@@ -96,6 +118,22 @@ final class LocationManager {
         guard let idx = collections.firstIndex(where: { $0.id == collection.id }) else { return }
         collections[idx].name = name
         GeoCollection.saveAll(collections)
+    }
+
+    func distance(to alert: GeoAlert, useMetric: Bool) -> String? {
+        guard let current = currentLocation else { return nil }
+        let meters = current.distance(from: CLLocation(latitude: alert.latitude, longitude: alert.longitude))
+        if useMetric {
+            return meters < 1000
+                ? "\(Int(meters.rounded())) m"
+                : String(format: meters < 10_000 ? "%.1f km" : "%.0f km", meters / 1000)
+        } else {
+            let miles = meters / 1609.344
+            if miles < 0.1 {
+                return "\(Int((meters * 3.28084).rounded())) ft"
+            }
+            return String(format: miles < 10 ? "%.1f mi" : "%.0f mi", miles)
+        }
     }
 
     func collectionName(for alert: GeoAlert) -> String {
