@@ -47,6 +47,13 @@ struct SettingsView: View {
                 }
 
                 // Future preferences go here
+
+                Section {
+                    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+                    let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
+                    LabeledContent("Version", value: "\(version) (\(build))")
+                        .foregroundStyle(.secondary)
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)

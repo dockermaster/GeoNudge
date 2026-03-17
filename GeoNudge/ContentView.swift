@@ -3,10 +3,32 @@ import CoreLocation
 import UIKit
 import UniformTypeIdentifiers
 
+// MARK: - Share sheet wrapper
+
+private struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ uvc: UIActivityViewController, context: Context) {}
+}
+
+private struct ShareContent: Identifiable {
+    let id = UUID()
+    let items: [Any]
+}
+
+private struct IdentifiablePayload: Identifiable {
+    let id = UUID()
+    let payload: SharePayload
+    init(_ payload: SharePayload) { self.payload = payload }
+}
+
 struct AlertRowView: View {
     let alert: GeoAlert
     let collectionName: String
     let distance: String?
+    let useMetric: Bool
     let onToggle: () -> Void
 
     var body: some View {
@@ -23,7 +45,7 @@ struct AlertRowView: View {
                         Text(distance)
                         Text("·")
                     }
-                    Text("\(Int(alert.radius))m radius")
+                    Text("\(LocationManager.formatRadius(alert.radius, useMetric: useMetric)) radius")
                     Text("·")
                     Text(collectionName)
                 }
@@ -78,6 +100,9 @@ struct ContentView: View {
     @State private var showingFileImporter = false
     @State private var showingImportConfirm = false
     @State private var importConfirmMessage = ""
+    @State private var shareContent: ShareContent?
+    @State private var deepLinkedAlertData: SharePayload.AlertData?
+    @State private var incomingCollection: IdentifiablePayload?
 
     private var filteredAlerts: [GeoAlert] {
         guard let id = filterCollectionId else { return locationManager.alerts }
@@ -110,7 +135,8 @@ struct ContentView: View {
                             AlertRowView(
                                 alert: alert,
                                 collectionName: locationManager.collectionName(for: alert),
-                                distance: locationManager.distance(to: alert, useMetric: userPreferences.useMetric)
+                                distance: locationManager.distance(to: alert, useMetric: userPreferences.useMetric),
+                                useMetric: userPreferences.useMetric
                             ) {
                                 locationManager.toggleActive(alert)
                             }
@@ -121,6 +147,18 @@ struct ContentView: View {
                             .swipeActions(edge: .trailing) {
                                 Button("Delete", role: .destructive) {
                                     locationManager.delete(alert)
+                                }
+                            }
+                            .contextMenu {
+                                Button { editingAlert = alert } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                Button { shareAlert(alert) } label: {
+                                    Label("Share Location", systemImage: "square.and.arrow.up")
+                                }
+                                Divider()
+                                Button(role: .destructive) { locationManager.delete(alert) } label: {
+                                    Label("Delete", systemImage: "trash")
                                 }
                             }
                         }
@@ -185,6 +223,18 @@ struct ContentView: View {
             } message: {
                 Text(importConfirmMessage)
             }
+            .sheet(item: $shareContent) { content in
+                ShareSheet(items: content.items)
+                    .presentationDetents([.medium])
+            }
+            .sheet(item: $deepLinkedAlertData) { data in
+                AddAlertView(prefilled: data)
+            }
+            .sheet(item: $incomingCollection) { identifiable in
+                ImportPreviewView(payload: identifiable.payload) { payload in
+                    applyImport(payload)
+                }
+            }
             .safeAreaInset(edge: .top) {
                 permissionBanners
             }
@@ -192,8 +242,65 @@ struct ContentView: View {
                 locationManager.requestAlwaysAuthorization()
                 notificationManager.requestAuthorization()
             }
+            .onOpenURL { url in
+                print("[GeoNudge] ContentView received URL: \(url)")
+                print("[GeoNudge] scheme=\(url.scheme ?? "nil"), isFileURL=\(url.isFileURL)")
+                guard url.scheme == "geonudge" || url.isFileURL else {
+                    print("[GeoNudge] URL ignored - wrong scheme")
+                    return
+                }
+                Task { @MainActor in
+                    guard let payload = SharePayload.decode(from: url) else {
+                        print("[GeoNudge] SharePayload.decode returned nil")
+                        return
+                    }
+                    print("[GeoNudge] Decoded payload successfully")
+                    switch payload {
+                    case .singleAlert(let data):
+                        print("[GeoNudge] Setting deepLinkedAlertData: \(data.name)")
+                        deepLinkedAlertData = data
+                        print("[GeoNudge] deepLinkedAlertData is now: \(deepLinkedAlertData?.name ?? "nil")")
+                    case .collection(let name, let alerts):
+                        print("[GeoNudge] Setting incomingCollection: \(name) (\(alerts.count) alerts)")
+                        incomingCollection = IdentifiablePayload(payload)
+                    }
+                }
+            }
         }
     }
+
+    // MARK: - Sharing
+
+    private func shareAlert(_ alert: GeoAlert) {
+        guard let url = SharePayload.url(for: alert) else { return }
+        shareContent = ShareContent(items: [url])
+    }
+
+    private func shareCollection(id: UUID) {
+        guard let collection = locationManager.collections.first(where: { $0.id == id }) else { return }
+        let alerts = locationManager.alerts.filter {
+            ($0.collectionId ?? locationManager.defaultCollection.id) == id
+        }
+        Task {
+            if let fileURL = try? SharePayload.file(for: collection, alerts: alerts) {
+                shareContent = ShareContent(items: [fileURL])
+            }
+        }
+    }
+
+    private func applyImport(_ payload: SharePayload) {
+        guard case .collection(let name, let alerts) = payload else { return }
+        let collection = GeoCollection(name: name)
+        let geoAlerts = alerts.map {
+            GeoAlert(name: $0.name, message: $0.message,
+                     latitude: $0.latitude, longitude: $0.longitude,
+                     radius: $0.radius, collectionId: collection.id)
+        }
+        locationManager.importCollection(collection, alerts: geoAlerts)
+        filterCollectionId = collection.id
+    }
+
+    // MARK: - Google Takeout import
 
     private func handleImportTap() {
         if googleAuthManager.isSignedIn {
@@ -280,6 +387,13 @@ struct ContentView: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if let id {
+                Button { shareCollection(id: id) } label: {
+                    Label("Share Collection", systemImage: "square.and.arrow.up")
+                }
+            }
+        }
     }
 
     @ViewBuilder

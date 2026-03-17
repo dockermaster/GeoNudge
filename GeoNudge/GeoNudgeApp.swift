@@ -27,6 +27,7 @@ struct GeoNudgeApp: App {
                 .environment(googleAuthManager)
                 .environment(userPreferences)
                 .onOpenURL { url in
+                    print("[GeoNudge] App received URL: \(url)")
                     GIDSignIn.sharedInstance.handle(url)
                 }
                 .task {

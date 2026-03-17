@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import CoreLocation
 
 struct MapPreviewView: View {
     let coordinate: CLLocationCoordinate2D
@@ -25,6 +26,7 @@ struct MapPreviewView: View {
 struct AddAlertView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(LocationManager.self) private var locationManager
+    @Environment(UserPreferences.self) private var userPreferences
 
     private let existingAlert: GeoAlert?
 
@@ -41,6 +43,18 @@ struct AddAlertView: View {
 
     private var canSave: Bool {
         !name.isEmpty && pickedLocation != nil
+    }
+
+    init(prefilled data: SharePayload.AlertData) {
+        existingAlert = nil
+        _name = State(initialValue: data.name)
+        _message = State(initialValue: data.message)
+        _radius = State(initialValue: data.radius)
+        _selectedCollectionId = State(initialValue: nil)
+        _pickedLocation = State(initialValue: PickedLocation(
+            coordinate: CLLocationCoordinate2D(latitude: data.latitude, longitude: data.longitude),
+            label: data.name
+        ))
     }
 
     init(editing alert: GeoAlert? = nil) {
@@ -91,7 +105,7 @@ struct AddAlertView: View {
                     }
                 }
 
-                Section("Radius: \(Int(radius))m") {
+                Section("Radius: \(LocationManager.formatRadius(radius, useMetric: userPreferences.useMetric))") {
                     Slider(value: $radius, in: 100...1000, step: 50)
                 }
 

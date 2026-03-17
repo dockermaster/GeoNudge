@@ -120,6 +120,12 @@ final class LocationManager {
         GeoCollection.saveAll(collections)
     }
 
+    static func formatRadius(_ meters: Double, useMetric: Bool) -> String {
+        useMetric
+            ? "\(Int(meters.rounded())) m"
+            : "\(Int((meters * 3.28084).rounded())) ft"
+    }
+
     func distance(to alert: GeoAlert, useMetric: Bool) -> String? {
         guard let current = currentLocation else { return nil }
         let meters = current.distance(from: CLLocation(latitude: alert.latitude, longitude: alert.longitude))
