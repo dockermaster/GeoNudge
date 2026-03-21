@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import CoreLocation
+import UIKit
 
 struct MapPreviewView: View {
     let coordinate: CLLocationCoordinate2D
@@ -38,6 +39,8 @@ struct AddAlertView: View {
     @State private var showingMapPicker = false
     @State private var showingAddCollection = false
     @State private var newCollectionName = ""
+    @State private var isResolvingLink = false
+    @State private var linkError: String?
 
     private var isEditing: Bool { existingAlert != nil }
 
@@ -103,6 +106,18 @@ struct AddAlertView: View {
                             systemImage: "map"
                         )
                     }
+
+                    Button {
+                        pasteGoogleMapsLink()
+                    } label: {
+                        if isResolvingLink {
+                            Label("Resolving link…", systemImage: "link")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Label("Paste Google Maps Link", systemImage: "link")
+                        }
+                    }
+                    .disabled(isResolvingLink)
                 }
 
                 Section("Radius: \(LocationManager.formatRadius(radius, useMetric: userPreferences.useMetric))") {
@@ -158,6 +173,36 @@ struct AddAlertView: View {
                 if selectedCollectionId == nil {
                     selectedCollectionId = locationManager.defaultCollection.id
                 }
+            }
+            .alert("Could Not Import Link", isPresented: Binding(
+                get: { linkError != nil },
+                set: { if !$0 { linkError = nil } }
+            )) {
+                Button("OK", role: .cancel) { linkError = nil }
+            } message: {
+                Text(linkError ?? "")
+            }
+        }
+    }
+
+    private func pasteGoogleMapsLink() {
+        guard let raw = UIPasteboard.general.string,
+              GoogleMapsLinkParser.isGoogleMapsURL(raw),
+              let url = URL(string: raw)
+        else {
+            linkError = "No Google Maps link found in clipboard."
+            return
+        }
+
+        isResolvingLink = true
+        Task {
+            defer { isResolvingLink = false }
+            do {
+                let place = try await GoogleMapsLinkParser.parse(url: url)
+                pickedLocation = PickedLocation(coordinate: place.coordinate, label: place.name)
+                if name.isEmpty { name = place.name }
+            } catch {
+                linkError = error.localizedDescription
             }
         }
     }

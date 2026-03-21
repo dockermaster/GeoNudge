@@ -46,6 +46,11 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Notifications") {
+                    Toggle("Sound", isOn: $prefs.notificationSound)
+                    Toggle("Vibration", isOn: $prefs.notificationVibration)
+                }
+
                 // Future preferences go here
 
                 Section {

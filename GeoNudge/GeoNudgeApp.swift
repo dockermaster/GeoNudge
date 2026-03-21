@@ -6,11 +6,13 @@ struct GeoNudgeApp: App {
     @State private var notificationManager: NotificationManager
     @State private var locationManager: LocationManager
     @State private var googleAuthManager = GoogleAuthManager()
-    @State private var userPreferences = UserPreferences()
+    @State private var userPreferences: UserPreferences
 
     init() {
-        let nm = NotificationManager()
+        let up = UserPreferences()
+        let nm = NotificationManager(preferences: up)
         let lm = LocationManager(notifier: nm)
+        _userPreferences = State(initialValue: up)
         _notificationManager = State(initialValue: nm)
         _locationManager = State(initialValue: lm)
 

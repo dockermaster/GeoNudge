@@ -87,6 +87,13 @@
 			</dict>
 		</dict>
 	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>comgooglemaps</string>
+		<string>waze</string>
+		<string>here-route</string>
+		<string>citymapper</string>
+	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>UILaunchScreen</key>
